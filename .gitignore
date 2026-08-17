@@ -1,0 +1,9 @@
+﻿node_modules/
+vps_env/
+__pycache__/
+*.mp4
+mapping_images/
+models/*.ply
+models/*.glb
+.env
+.DS_Store
