@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Custom VPS WebAR Anchor</title>
+  <title>VPS Spatial Viewer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body {
@@ -12,6 +12,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: #000;
       color: #fff;
+      user-select: none;
     }
     #hud {
       position: fixed;
@@ -19,16 +20,16 @@
       left: 12px;
       right: 12px;
       z-index: 1000;
-      background: rgba(10, 15, 25, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 10px;
-      padding: 10px 14px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 12px 16px;
       font-size: 13px;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 6px;
     }
     .hud-row {
       display: flex;
@@ -37,9 +38,10 @@
     }
     .status-pill {
       font-weight: 700;
-      padding: 2px 8px;
+      padding: 3px 10px;
       border-radius: 12px;
       font-size: 11px;
+      letter-spacing: 0.5px;
       text-transform: uppercase;
     }
     .status-searching { background: #d97706; color: #fff; }
@@ -47,18 +49,18 @@
     .status-error { background: #dc2626; color: #fff; }
     #overlay-btn {
       position: fixed;
-      bottom: 24px;
+      bottom: 28px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 1000;
       background: #2563eb;
       color: #fff;
       border: none;
-      padding: 14px 28px;
-      border-radius: 30px;
+      padding: 16px 32px;
+      border-radius: 32px;
       font-weight: 700;
-      font-size: 15px;
-      box-shadow: 0 4px 14px rgba(37,99,235,0.5);
+      font-size: 16px;
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
     }
     #capture-canvas {
       display: none;
@@ -67,19 +69,19 @@
 </head>
 <body>
 
-  <!-- Top Real-time HUD -->
+  <!-- Real-Time VPS Diagnostic HUD -->
   <div id="hud">
     <div class="hud-row">
-      <span><strong>VPS Pipeline:</strong></span>
-      <span id="vps-status" class="status-pill status-searching">INITIALIZING...</span>
+      <span><strong>VPS Status:</strong></span>
+      <span id="vps-status" class="status-pill status-searching">INITIALIZING</span>
     </div>
     <div class="hud-row">
-      <span style="color:#94a3b8;">Server Target:</span>
+      <span style="color:#94a3b8;">Endpoint:</span>
       <span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span>
     </div>
     <div class="hud-row">
       <span style="color:#94a3b8;">Telemetry:</span>
-      <span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">0 requests sent</span>
+      <span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Ready</span>
     </div>
   </div>
 
@@ -87,9 +89,9 @@
   <canvas id="capture-canvas"></canvas>
 
   <script>
-    // ==========================================
-    // 1. CONFIGURE YOUR NGROK URL HERE
-    // ==========================================
+    // ========================================================
+    // NGROK / VPS SERVER CONFIGURATION
+    // ========================================================
     const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
 
@@ -99,78 +101,117 @@
     let isLocalizing = false;
     let requestCount = 0;
     let worldAnchorGroup;
+    let cameraGroup;
 
-    // Set up Three.js Scene
     function initScene() {
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 50.0);
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 100.0);
       
+      // Camera rig group for IMU orientation
+      cameraGroup = new THREE.Group();
+      cameraGroup.add(camera);
+      scene.add(cameraGroup);
+
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
       document.body.appendChild(renderer.domElement);
 
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-      scene.add(light);
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      scene.add(hemiLight);
 
-      // Master World Anchor Group - VPS transforms this group
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(0, 5, 5);
+      scene.add(dirLight);
+
+      // Root container for all physical-world spatial objects
       worldAnchorGroup = new THREE.Group();
       scene.add(worldAnchorGroup);
 
-      // Add (0,0,0) Room Origin Marker
+      // Add the (0,0,0) calibration origin landmark
       createOriginMarker();
+
+      // Enable IMU Gyroscope for real-time rotational tracking
+      setupIMUOrientation();
 
       window.addEventListener('resize', onWindowResize);
       animate();
     }
 
-    // Creates a reference indicator right at (0, 0, 0)
     function createOriginMarker() {
       const originGroup = new THREE.Group();
       originGroup.position.set(0, 0, 0);
 
-      // Central glowing sphere at 0,0,0
+      // Wireframe origin node
       const sphereGeo = new THREE.SphereGeometry(0.08, 16, 16);
-      const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
+      const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
       originGroup.add(new THREE.Mesh(sphereGeo, sphereMat));
 
-      // RGB Axes (X = Red, Y = Green, Z = Blue)
-      const axesHelper = new THREE.AxesHelper(0.5);
+      // RGB Axes (Red=X, Green=Y, Blue=Z)
+      const axesHelper = new THREE.AxesHelper(0.6);
+      axesHelper.material.linewidth = 3;
       originGroup.add(axesHelper);
 
-      // Floor grid disk around origin
-      const ringGeo = new THREE.RingGeometry(0.2, 0.22, 32);
-      ringGeo.rotateX(-Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
-      originGroup.add(new THREE.Mesh(ringGeo, ringMat));
+      // Concentric floor rings
+      const ringGeo1 = new THREE.RingGeometry(0.2, 0.22, 32);
+      ringGeo1.rotateX(-Math.PI / 2);
+      const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
+      originGroup.add(new THREE.Mesh(ringGeo1, ringMat1));
 
-      // Floating billboard card 0.5m above origin
+      const ringGeo2 = new THREE.RingGeometry(0.4, 0.41, 32);
+      ringGeo2.rotateX(-Math.PI / 2);
+      const ringMat2 = new THREE.MeshBasicMaterial({ color: 0x0ea5e9, side: THREE.DoubleSide });
+      originGroup.add(new THREE.Mesh(ringGeo2, ringMat2));
+
+      // Info Card Billboard
       const canvas = document.createElement('canvas');
-      canvas.width = 256; canvas.height = 128;
+      canvas.width = 512;
+      canvas.height = 256;
       const ctx = canvas.getContext('2d');
+
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, 256, 128);
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 6;
-      ctx.strokeRect(0, 0, 256, 128);
+      ctx.fillRect(0, 0, 512, 256);
+      ctx.strokeStyle = '#00f0ff';
+      ctx.lineWidth = 10;
+      ctx.strokeRect(0, 0, 512, 256);
+
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px monospace';
-      ctx.fillText("ORIGIN (0,0,0)", 20, 50);
-      ctx.font = '16px sans-serif';
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText("VPS Calibration Zero", 20, 85);
+      ctx.font = 'bold 44px monospace';
+      ctx.fillText("ORIGIN (0,0,0)", 40, 90);
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '28px sans-serif';
+      ctx.fillText("Spatial VPS Calibration Zero", 40, 150);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '22px monospace';
+      ctx.fillText("X: Right | Y: Up | Z: Forward", 40, 200);
 
       const cardTex = new THREE.CanvasTexture(canvas);
       const cardMat = new THREE.MeshBasicMaterial({ map: cardTex, transparent: true });
       const cardGeo = new THREE.PlaneGeometry(0.6, 0.3);
       const cardMesh = new THREE.Mesh(cardGeo, cardMat);
-      cardMesh.position.set(0, 0.4, 0);
+      cardMesh.position.set(0, 0.45, 0);
       originGroup.add(cardMesh);
 
       worldAnchorGroup.add(originGroup);
     }
 
-    // Start video camera pass-through
+    function setupIMUOrientation() {
+      if (window.DeviceOrientationEvent) {
+        window.addEventListener('deviceorientation', (event) => {
+          if (event.alpha === null || !cameraGroup) return;
+
+          const alpha = THREE.MathUtils.degToRad(event.alpha || 0); // Z
+          const beta  = THREE.MathUtils.degToRad(event.beta || 0);  // X
+          const gamma = THREE.MathUtils.degToRad(event.gamma || 0); // Y
+
+          const euler = new THREE.Euler(beta - Math.PI / 2, gamma, -alpha, 'YXZ');
+          cameraGroup.quaternion.setFromEuler(euler);
+        }, true);
+      }
+    }
+
     async function startAR() {
       document.getElementById('overlay-btn').style.display = 'none';
       initScene();
@@ -188,13 +229,13 @@
         videoElement.srcObject = stream;
         await videoElement.play();
 
-        // Background pass-through plane
+        // Feed camera frames directly to background
         videoTexture = new THREE.VideoTexture(videoElement);
         scene.background = videoTexture;
 
         updateStatus("SEARCHING FOR MATCH", "searching");
 
-        // Start continuous VPS polling loop every 1.5 seconds
+        // Polling cycle every 1.5s
         setInterval(captureAndSendFrame, 1500);
 
       } catch (err) {
@@ -204,7 +245,6 @@
       }
     }
 
-    // Grab frame from live camera stream and POST to Python VPS
     async function captureAndSendFrame() {
       if (!videoElement || videoElement.videoWidth === 0 || isLocalizing) return;
       isLocalizing = true;
@@ -217,7 +257,6 @@
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-
       document.getElementById("vps-telemetry").innerText = `Sending #${requestCount}...`;
 
       try {
@@ -225,7 +264,6 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            // Crucial: tells ngrok to pass request straight to FastAPI without the HTML splash page
             'ngrok-skip-browser-warning': 'true'
           },
           body: JSON.stringify({ image: base64Image })
@@ -239,7 +277,7 @@
         document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status || 'OK'}`;
 
         if (data.matched && data.pose) {
-          updateStatus(`VPS LOCKED (${data.inliers || 0} INLIERS)`, "locked");
+          updateStatus(`VPS LOCKED (${data.inliers} INLIERS)`, "locked");
           applyPose(data.pose);
         } else {
           updateStatus(`SEARCHING (${data.inliers || 0} INLIERS)`, "searching");
@@ -254,16 +292,25 @@
       }
     }
 
-    // Smoothly shift the world anchor to match physical space
+    // Invert Camera-in-World matrix into World-in-Camera transform
     function applyPose(pose) {
       if (!worldAnchorGroup) return;
-      // Transform incoming translation & rotation into scene coordinates
-      if (pose.position) {
-        worldAnchorGroup.position.set(pose.position.x, pose.position.y, pose.position.z);
-      }
-      if (pose.rotation) {
-        worldAnchorGroup.rotation.set(pose.rotation.x, pose.rotation.y, pose.rotation.z);
-      }
+
+      const camPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
+      const camEuler = new THREE.Euler(pose.rotation.x, pose.rotation.y, pose.rotation.z, 'XYZ');
+
+      const camMatrix = new THREE.Matrix4();
+      camMatrix.makeRotationFromEuler(camEuler);
+      camMatrix.setPosition(camPos);
+
+      // Invert camera matrix to transform world origin relative to view
+      const worldMatrix = new THREE.Matrix4().copy(camMatrix).invert();
+
+      worldMatrix.decompose(
+        worldAnchorGroup.position,
+        worldAnchorGroup.quaternion,
+        worldAnchorGroup.scale
+      );
     }
 
     function updateStatus(text, stateClass) {

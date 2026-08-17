@@ -3,7 +3,7 @@ import numpy as np
 import open3d as o3d
 import os
 
-LIDAR_PATH = "models/lab_lidar_scan.ply"
+LIDAR_PATH = "models/room_scan.ply"
 IMAGE_PATH = "mapping_images/frame_0001.jpg"
 OUTPUT_DB = "vps_lidar_db.npz"
 
