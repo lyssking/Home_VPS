@@ -1,174 +1,287 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>NOEMATA // SPATIAL AR</title>
-    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
-    <link rel="stylesheet" href="/css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Custom VPS WebAR Anchor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #000;
+      color: #fff;
+    }
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 1000;
+      background: rgba(10, 15, 25, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .status-pill {
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .status-searching { background: #d97706; color: #fff; }
+    .status-locked { background: #16a34a; color: #fff; }
+    .status-error { background: #dc2626; color: #fff; }
+    #overlay-btn {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 30px;
+      font-weight: 700;
+      font-size: 15px;
+      box-shadow: 0 4px 14px rgba(37,99,235,0.5);
+    }
+    #capture-canvas {
+      display: none;
+    }
+  </style>
 </head>
 <body>
 
-    <button id="btn-enter-ar" class="btn-enter-ar">LAUNCH AR EXPERIENCE</button>
-
-    <div id="viewer-hud" class="hud-overlay" style="display: none;">
-        <div class="status-pill" id="sync-status">VPS SEARCHING... POINT AT ENTRANCE/DESKS</div>
-        <div class="btn-bar">
-            <button class="btn" id="btn-manual-vps">FORCE VPS SCAN</button>
-        </div>
+  <!-- Top Real-time HUD -->
+  <div id="hud">
+    <div class="hud-row">
+      <span><strong>VPS Pipeline:</strong></span>
+      <span id="vps-status" class="status-pill status-searching">INITIALIZING...</span>
     </div>
+    <div class="hud-row">
+      <span style="color:#94a3b8;">Server Target:</span>
+      <span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span>
+    </div>
+    <div class="hud-row">
+      <span style="color:#94a3b8;">Telemetry:</span>
+      <span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">0 requests sent</span>
+    </div>
+  </div>
 
-    <script>
-        // Update this URL with your active ngrok tunnel URL
-        const VPS_ENDPOINT = "https://battle-freeway-quadrant.ngrok-free.dev";
+  <button id="overlay-btn" onclick="startAR()">START CAMERA & VPS</button>
+  <canvas id="capture-canvas"></canvas>
 
-        AFRAME.registerComponent('billboard', {
-            tick: function () {
-                const cam = document.getElementById('main-camera');
-                if (!cam) return;
-                const nodePos = this.el.object3D.position;
-                const camPos = cam.object3D.position;
-                this.el.object3D.rotation.y = Math.atan2(camPos.x - nodePos.x, camPos.z - nodePos.z);
-            }
+  <script>
+    // ==========================================
+    // 1. CONFIGURE YOUR NGROK URL HERE
+    // ==========================================
+    const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
+    const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
+
+    document.getElementById("vps-endpoint-label").innerText = NGROK_BASE_URL.replace("https://", "");
+
+    let scene, camera, renderer, videoElement, videoTexture;
+    let isLocalizing = false;
+    let requestCount = 0;
+    let worldAnchorGroup;
+
+    // Set up Three.js Scene
+    function initScene() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 50.0);
+      
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      document.body.appendChild(renderer.domElement);
+
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      scene.add(light);
+
+      // Master World Anchor Group - VPS transforms this group
+      worldAnchorGroup = new THREE.Group();
+      scene.add(worldAnchorGroup);
+
+      // Add (0,0,0) Room Origin Marker
+      createOriginMarker();
+
+      window.addEventListener('resize', onWindowResize);
+      animate();
+    }
+
+    // Creates a reference indicator right at (0, 0, 0)
+    function createOriginMarker() {
+      const originGroup = new THREE.Group();
+      originGroup.position.set(0, 0, 0);
+
+      // Central glowing sphere at 0,0,0
+      const sphereGeo = new THREE.SphereGeometry(0.08, 16, 16);
+      const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
+      originGroup.add(new THREE.Mesh(sphereGeo, sphereMat));
+
+      // RGB Axes (X = Red, Y = Green, Z = Blue)
+      const axesHelper = new THREE.AxesHelper(0.5);
+      originGroup.add(axesHelper);
+
+      // Floor grid disk around origin
+      const ringGeo = new THREE.RingGeometry(0.2, 0.22, 32);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
+      originGroup.add(new THREE.Mesh(ringGeo, ringMat));
+
+      // Floating billboard card 0.5m above origin
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 256, 128);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(0, 0, 256, 128);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 24px monospace';
+      ctx.fillText("ORIGIN (0,0,0)", 20, 50);
+      ctx.font = '16px sans-serif';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText("VPS Calibration Zero", 20, 85);
+
+      const cardTex = new THREE.CanvasTexture(canvas);
+      const cardMat = new THREE.MeshBasicMaterial({ map: cardTex, transparent: true });
+      const cardGeo = new THREE.PlaneGeometry(0.6, 0.3);
+      const cardMesh = new THREE.Mesh(cardGeo, cardMat);
+      cardMesh.position.set(0, 0.4, 0);
+      originGroup.add(cardMesh);
+
+      worldAnchorGroup.add(originGroup);
+    }
+
+    // Start video camera pass-through
+    async function startAR() {
+      document.getElementById('overlay-btn').style.display = 'none';
+      initScene();
+
+      videoElement = document.createElement('video');
+      videoElement.setAttribute('autoplay', '');
+      videoElement.setAttribute('muted', '');
+      videoElement.setAttribute('playsinline', '');
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        videoElement.srcObject = stream;
+        await videoElement.play();
+
+        // Background pass-through plane
+        videoTexture = new THREE.VideoTexture(videoElement);
+        scene.background = videoTexture;
+
+        updateStatus("SEARCHING FOR MATCH", "searching");
+
+        // Start continuous VPS polling loop every 1.5 seconds
+        setInterval(captureAndSendFrame, 1500);
+
+      } catch (err) {
+        console.error("Camera access failed:", err);
+        updateStatus("CAMERA ERROR", "error");
+        alert("Camera error: " + err.message);
+      }
+    }
+
+    // Grab frame from live camera stream and POST to Python VPS
+    async function captureAndSendFrame() {
+      if (!videoElement || videoElement.videoWidth === 0 || isLocalizing) return;
+      isLocalizing = true;
+      requestCount++;
+
+      const canvas = document.getElementById('capture-canvas');
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+      const base64Image = canvas.toDataURL('image/jpeg', 0.7);
+
+      document.getElementById("vps-telemetry").innerText = `Sending #${requestCount}...`;
+
+      try {
+        const response = await fetch(VPS_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Crucial: tells ngrok to pass request straight to FastAPI without the HTML splash page
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: JSON.stringify({ image: base64Image })
         });
 
-        AFRAME.registerComponent('vps-client-manager', {
-            init: function () {
-                this.lastScan = 0;
-                this.isLocked = false;
-            },
-            tick: function (time) {
-                // Auto-poll VPS every 3 seconds until locked
-                if (!this.isLocked && time - this.lastScan > 3000) {
-                    this.lastScan = time;
-                    this.triggerVPSCapture();
-                }
-            },
-            triggerVPSCapture: async function () {
-                const scene = this.el.sceneEl;
-                if (!scene.is('ar-mode')) return;
-
-                const renderer = scene.renderer;
-                const camera = scene.camera;
-                const canvas = renderer.domElement;
-                const statusPill = document.getElementById('sync-status');
-
-                // Extract lightweight WebGL frame
-                const base64Image = canvas.toDataURL('image/jpeg', 0.55).split(',')[1];
-                const p = camera.projectionMatrix.elements;
-                const w = canvas.width;
-                const h = canvas.height;
-
-                const payload = {
-                    image_b64: base64Image,
-                    fx: (p[0] * w) / 2,
-                    fy: (p[5] * h) / 2,
-                    ox: w / 2,
-                    oy: h / 2
-                };
-
-                try {
-                    const res = await fetch(VPS_ENDPOINT, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    const data = await res.json();
-
-                    if (data.success && data.matrix) {
-                        this.isLocked = true;
-                        const vpsMatrix = new THREE.Matrix4().fromArray(data.matrix);
-                        const container = document.getElementById('datum-container');
-                        
-                        container.object3D.matrixAutoUpdate = false;
-                        container.object3D.matrix.copy(camera.matrixWorld).multiply(vpsMatrix.invert());
-
-                        statusPill.innerText = `VPS LOCKED (INLIERS: ${data.inliers}) ● SYNCED`;
-                        statusPill.classList.add('status-locked');
-                    }
-                } catch (e) {
-                    console.warn("VPS Query Notice:", e.message);
-                }
-            }
-        });
-    </script>
-
-    <a-scene webxr="optionalFeatures: hit-test, local-floor, dom-overlay; overlayElement: #viewer-hud; referenceSpaceType: local-floor;"
-             vps-client-manager
-             renderer="alpha: true; antialias: true;"
-             xr-mode-ui="enabled: false">
-
-        <a-entity id="main-camera" camera position="0 1.6 0" look-controls></a-entity>
-        <a-entity light="type: ambient; intensity: 1.5;"></a-entity>
-        <a-entity id="datum-container" position="0 0 0"></a-entity>
-    </a-scene>
-
-    <script>
-        const socket = io({ transports: ['websocket', 'polling'] });
-
-        function renderAnchors(anchors) {
-            const container = document.getElementById('datum-container');
-            container.innerHTML = '';
-
-            Object.entries(anchors).forEach(([key, data]) => {
-                const node = document.createElement('a-entity');
-                node.setAttribute('id', key);
-                node.setAttribute('billboard', '');
-                node.setAttribute('position', `${data.x} ${data.y} ${data.z}`);
-
-                const box = document.createElement('a-box');
-                box.setAttribute('width', '0.18');
-                box.setAttribute('height', '0.18');
-                box.setAttribute('depth', '0.18');
-                box.setAttribute('material', 'color: #00f0ff; wireframe: true;');
-                node.appendChild(box);
-
-                const label = document.createElement('a-text');
-                label.setAttribute('value', data.label || key.toUpperCase());
-                label.setAttribute('position', '0 0.22 0');
-                label.setAttribute('align', 'center');
-                label.setAttribute('width', '1.6');
-                label.setAttribute('color', '#00f0ff');
-                node.appendChild(label);
-
-                const card = document.createElement('a-entity');
-                card.setAttribute('position', '0 0.48 0');
-                card.innerHTML = `
-                    <a-plane width="0.85" height="0.32" color="#0d1117" opacity="0.92" material="shader: flat;"></a-plane>
-                    <a-text value="${data.label || key.toUpperCase()}" color="#34d399" width="1.3" position="-0.38 0.08 0.01"></a-text>
-                    <a-text value="${data.desc || 'Station Active'}" color="#ffffff" width="1.0" position="-0.38 -0.06 0.01"></a-text>
-                `;
-                node.appendChild(card);
-                container.appendChild(node);
-            });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
 
-        fetch('/api/spatial/map')
-            .then(res => res.json())
-            .then(data => renderAnchors(data.anchors || data));
+        const data = await response.json();
+        document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status || 'OK'}`;
 
-        socket.on('spatialAnchorsUpdated', (data) => renderAnchors(data.anchors || data));
+        if (data.matched && data.pose) {
+          updateStatus(`VPS LOCKED (${data.inliers || 0} INLIERS)`, "locked");
+          applyPose(data.pose);
+        } else {
+          updateStatus(`SEARCHING (${data.inliers || 0} INLIERS)`, "searching");
+        }
 
-        document.getElementById('btn-manual-vps').addEventListener('click', () => {
-            const manager = document.querySelector('a-scene').components['vps-client-manager'];
-            if (manager) manager.triggerVPSCapture();
-        });
+      } catch (err) {
+        console.error("VPS fetch error:", err);
+        document.getElementById("vps-telemetry").innerText = `Error: ${err.message}`;
+        updateStatus("OFFLINE / TUNNEL ERROR", "error");
+      } finally {
+        isLocalizing = false;
+      }
+    }
 
-        document.getElementById('btn-enter-ar').addEventListener('click', async () => {
-            const scene = document.querySelector('a-scene');
-            if (!scene.hasLoaded) {
-                await new Promise(r => scene.addEventListener('loaded', r));
-            }
-            try {
-                if (scene.enterAR) await scene.enterAR();
-                else await scene.enterVR();
-                document.getElementById('viewer-hud').style.display = 'flex';
-                document.getElementById('btn-enter-ar').style.display = 'none';
-            } catch (e) {
-                alert("AR Error: " + e.message);
-            }
-        });
-    </script>
+    // Smoothly shift the world anchor to match physical space
+    function applyPose(pose) {
+      if (!worldAnchorGroup) return;
+      // Transform incoming translation & rotation into scene coordinates
+      if (pose.position) {
+        worldAnchorGroup.position.set(pose.position.x, pose.position.y, pose.position.z);
+      }
+      if (pose.rotation) {
+        worldAnchorGroup.rotation.set(pose.rotation.x, pose.rotation.y, pose.rotation.z);
+      }
+    }
+
+    function updateStatus(text, stateClass) {
+      const pill = document.getElementById("vps-status");
+      pill.innerText = text;
+      pill.className = `status-pill status-${stateClass}`;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+  </script>
 </body>
 </html>
