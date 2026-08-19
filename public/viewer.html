@@ -7,32 +7,40 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; color: #fff; }
-    #hud { position: fixed; top: 12px; left: 12px; right: 12px; z-index: 1000; background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 12px; font-size: 13px; backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 6px; }
+    
+    /* We wrap the HUD in a container so WebXR DOM Overlay can use it */
+    #ui-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
+    
+    #hud { position: absolute; top: 12px; left: 12px; right: 12px; background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
     .hud-row { display: flex; justify-content: space-between; align-items: center; }
     .status-pill { font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
     .status-initializing { background: #475569; }
     .status-searching { background: #d97706; } 
     .status-locked { background: #16a34a; } 
     .status-error { background: #dc2626; }
-    #ar-button { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #2563eb; color: #fff; border: none; padding: 16px 32px; border-radius: 32px; font-weight: bold; font-size: 16px; }
+    
+    #ar-button { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); background: #2563eb; color: #fff; border: none; padding: 16px 32px; border-radius: 32px; font-weight: bold; font-size: 16px; pointer-events: auto; }
     #capture-canvas { display: none; }
   </style>
 </head>
 <body>
-  <div id="hud">
-    <div class="hud-row"><span><strong>VPS Status:</strong></span><span id="vps-status" class="status-pill status-initializing">READY TO START</span></div>
-    <div class="hud-row"><span style="color:#94a3b8;">Endpoint:</span><span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span></div>
-    <div class="hud-row"><span style="color:#94a3b8;">Telemetry:</span><span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Awaiting AR Session</span></div>
+  
+  <div id="ui-container">
+    <div id="hud">
+      <div class="hud-row"><span><strong>VPS Status:</strong></span><span id="vps-status" class="status-pill status-initializing">READY</span></div>
+      <div class="hud-row"><span style="color:#94a3b8;">Endpoint:</span><span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span></div>
+      <div class="hud-row"><span style="color:#94a3b8;">Telemetry:</span><span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Awaiting AR</span></div>
+    </div>
+    <button id="ar-button" onclick="startXRSession()">ENTER 6DOF AR</button>
   </div>
 
-  <button id="ar-button" onclick="startXRSession()">ENTER 6DOF AR</button>
   <canvas id="capture-canvas"></canvas>
 
   <script>
     // ==========================================
     // PASTE YOUR NGROK URL HERE:
     // ==========================================
-    const NGROK_BASE_URL = " https://battle-freeway-quadrant.ngrok-free.dev";
+    const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
 
     document.getElementById("vps-endpoint-label").innerText = NGROK_BASE_URL.replace("https://", "");
@@ -54,19 +62,13 @@
 
     async function startXRSession() {
       if (!navigator.xr) {
-        alert("WebXR is not supported on this browser. Use Chrome on Android.");
-        return;
-      }
-
-      const supported = await navigator.xr.isSessionSupported('immersive-ar');
-      if (!supported) {
-        alert("Immersive AR not supported on this device.");
+        alert("WebXR is not supported. Use Chrome on Android.");
         return;
       }
 
       document.getElementById('ar-button').style.display = 'none';
+      updateStatus("STARTING ARCORE", "initializing");
 
-      // 1. Setup Three.js with WebXR enabled
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
 
@@ -78,47 +80,54 @@
 
       scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.5));
 
-      // This group holds all world-locked items (origin, markers, models)
       worldAnchorGroup = new THREE.Group();
       scene.add(worldAnchorGroup);
       createOriginMarker();
 
-      // 2. Start background camera feed for sending VPS frames
+      // Start background camera feed for VPS
       hiddenVideo = document.createElement('video');
       hiddenVideo.setAttribute('autoplay', '');
       hiddenVideo.setAttribute('muted', '');
       hiddenVideo.setAttribute('playsinline', '');
-      videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 360 } });
-      hiddenVideo.srcObject = videoStream;
-      await hiddenVideo.play();
+      
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 480, height: 270 } });
+        hiddenVideo.srcObject = videoStream;
+        await hiddenVideo.play();
+      } catch (e) {
+        updateStatus("CAMERA ERROR", "error");
+        return;
+      }
 
-      // 3. Request ARCore Immersive Session
-      const session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['local-floor']
-      });
+      // Request Immersive Session WITH the UI Overlay enabled
+      try {
+        const session = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['local-floor'],
+          optionalFeatures: ['dom-overlay'],
+          domOverlay: { root: document.getElementById('ui-container') }
+        });
 
-      renderer.xr.setReferenceSpaceType('local-floor');
-      await renderer.xr.setSession(session);
-      xrRefSpace = await session.requestReferenceSpace('local-floor');
+        renderer.xr.setReferenceSpaceType('local-floor');
+        await renderer.xr.setSession(session);
+        
+        updateStatus("SEARCHING FOR LOCK", "searching");
+        setInterval(captureAndLocalize, 1200);
+        renderer.setAnimationLoop(render);
 
-      updateStatus("SEARCHING FOR LOCK", "searching");
-      setInterval(captureAndLocalize, 1200);
-
-      renderer.setAnimationLoop(render);
+      } catch (e) {
+        updateStatus("ARCORE FAILED", "error");
+        alert("Failed to start ARCore: " + e.message);
+      }
     }
 
     function createOriginMarker() {
       const origin = new THREE.Group();
-      
-      // Coordinate Axes: Red=X, Green=Y, Blue=Z
       origin.add(new THREE.AxesHelper(0.8));
 
-      // Floor Target Ring
       const ringGeo = new THREE.RingGeometry(0.25, 0.28, 32);
       ringGeo.rotateX(-Math.PI / 2);
       origin.add(new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide })));
 
-      // 3D Origin Box
       const boxGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
       const boxMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.8 });
       const boxMesh = new THREE.Mesh(boxGeo, boxMat);
@@ -130,6 +139,10 @@
 
     async function captureAndLocalize() {
       if (isLocalizing || !hiddenVideo || hiddenVideo.videoWidth === 0) return;
+      
+      // Safety check: Don't query server if WebXR hasn't finished booting
+      if (!renderer.xr.isPresenting) return;
+
       isLocalizing = true;
       requestCount++;
 
@@ -162,19 +175,21 @@
     }
 
     function calibrateWorldPose(pose) {
-      // 1. Get current ARCore camera matrix (WebXR Space: Y-Up, -Z Forward)
+      // 1. Safety Checks: Prevent crashing if WebXR drops a frame
+      if (!renderer.xr.isPresenting) return;
       const xrCamera = renderer.xr.getCamera(camera);
+      if (!xrCamera || !xrCamera.matrixWorld) return;
+
       const xrCamMatrix = new THREE.Matrix4().copy(xrCamera.matrixWorld);
 
-      // 2. Construct the VPS Camera Matrix (OpenCV Space: Y-Down, +Z Forward)
+      // 2. VPS Camera Matrix (OpenCV Space: Y-Down, +Z Forward)
       const vpsCamPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
       const vpsEuler = new THREE.Euler(pose.rotation.x, pose.rotation.y, pose.rotation.z, 'XYZ');
       
       const vpsCamMatrix = new THREE.Matrix4().makeRotationFromEuler(vpsEuler);
       vpsCamMatrix.setPosition(vpsCamPos);
 
-      // 3. THE FIX: Flip OpenCV axes to match WebGL
-      // This matrix scales local Y and Z by -1, flipping them upright and forward
+      // 3. Flip OpenCV axes to match WebGL
       const cvToGl = new THREE.Matrix4().set(
           1,  0,  0,  0,
           0, -1,  0,  0,
@@ -183,29 +198,26 @@
       );
       vpsCamMatrix.multiply(cvToGl);
 
-      // 4. Calculate the offset between where ARCore thinks you are, and where VPS knows you are
-      // World_in_XR = XR_Camera * VPS_Camera_Inverted
+      // 4. World_in_XR = XR_Camera * VPS_Camera_Inverted
       const vpsInv = new THREE.Matrix4().copy(vpsCamMatrix).invert();
       const targetWorldMatrix = new THREE.Matrix4().multiplyMatrices(xrCamMatrix, vpsInv);
 
-      // Extract final corrected position and rotation
       const targetPos = new THREE.Vector3();
       const targetRot = new THREE.Quaternion();
       const targetScale = new THREE.Vector3();
       targetWorldMatrix.decompose(targetPos, targetRot, targetScale);
 
-      // 5. Apply to the world group
+      // 5. Apply safely
       if (!hasLocked) {
         worldAnchorGroup.position.copy(targetPos);
         worldAnchorGroup.quaternion.copy(targetRot);
         hasLocked = true;
       } else {
-        // Smoothly lerp any small drift corrections
         worldAnchorGroup.position.lerp(targetPos, 0.1);
         worldAnchorGroup.quaternion.slerp(targetRot, 0.1);
       }
     }
-    
+
     function render(timestamp, frame) {
       renderer.render(scene, camera);
     }
