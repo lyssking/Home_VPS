@@ -46,7 +46,7 @@
     // ==========================================
     // PASTE YOUR NGROK URL HERE:
     // ==========================================
-    const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
+    const NGROK_BASE_URL = "https://your-ngrok-url.ngrok-free.dev";
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
 
     document.getElementById("vps-endpoint-label").innerText = NGROK_BASE_URL.replace("https://", "");
@@ -67,11 +67,9 @@
       cameraGroup.add(camera);
       scene.add(cameraGroup);
 
-      // Alpha: true makes the ThreeJS canvas transparent so we can see the HTML video behind it
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
-      // Ensure the renderer canvas sits on top of the video
       renderer.domElement.style.position = 'absolute';
       renderer.domElement.style.top = '0';
       renderer.domElement.style.left = '0';
@@ -93,15 +91,12 @@
       const originGroup = new THREE.Group();
       originGroup.position.set(0, 0, 0);
       
-      // XYZ Axes (X=Red, Y=Green, Z=Blue)
       originGroup.add(new THREE.AxesHelper(0.6));
       
-      // Concentric Rings
       const ringGeo = new THREE.RingGeometry(0.2, 0.22, 32);
       ringGeo.rotateX(-Math.PI / 2);
       originGroup.add(new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })));
 
-      // Origin Billboard Text
       const canvas = document.createElement('canvas');
       canvas.width = 512; canvas.height = 256;
       const ctx = canvas.getContext('2d');
@@ -126,6 +121,15 @@
       }
     }
 
+    // MISSING FUNCTION RESTORED HERE
+    function updateStatus(text, stateClass) {
+      const pill = document.getElementById("vps-status");
+      if (pill) {
+        pill.innerText = text;
+        pill.className = `status-pill status-${stateClass}`;
+      }
+    }
+
     async function startAR() {
       document.getElementById('overlay-btn').style.display = 'none';
       updateStatus("CAMERA PERMISSION...", "initializing");
@@ -143,7 +147,6 @@
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }});
         videoElement.srcObject = stream;
         
-        // Wait for the video metadata to load before firing the VPS requests
         videoElement.onloadedmetadata = async () => {
           await videoElement.play();
           updateStatus("SEARCHING FOR MATCH", "searching");
@@ -156,7 +159,6 @@
     }
 
     async function captureAndSendFrame() {
-      // Safety check to ensure video is fully ready
       if (!videoElement || videoElement.videoWidth === 0 || isLocalizing) return;
       isLocalizing = true;
       requestCount++;
