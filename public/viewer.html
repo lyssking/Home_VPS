@@ -6,92 +6,26 @@
   <title>VPS Spatial Viewer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #000;
-      color: #fff;
-      user-select: none;
-    }
-    #hud {
-      position: fixed;
-      top: 12px;
-      left: 12px;
-      right: 12px;
-      z-index: 1000;
-      background: rgba(15, 23, 42, 0.88);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 12px;
-      padding: 12px 16px;
-      font-size: 13px;
-      backdrop-filter: blur(10px);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .hud-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .status-pill {
-      font-weight: 700;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-    }
-    .status-searching { background: #d97706; color: #fff; }
-    .status-locked { background: #16a34a; color: #fff; }
-    .status-error { background: #dc2626; color: #fff; }
-    #overlay-btn {
-      position: fixed;
-      bottom: 28px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 1000;
-      background: #2563eb;
-      color: #fff;
-      border: none;
-      padding: 16px 32px;
-      border-radius: 32px;
-      font-weight: 700;
-      font-size: 16px;
-      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
-    }
-    #capture-canvas {
-      display: none;
-    }
+    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; color: #fff; }
+    #hud { position: fixed; top: 12px; left: 12px; right: 12px; z-index: 1000; background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 12px; font-size: 13px; backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 6px; }
+    .hud-row { display: flex; justify-content: space-between; align-items: center; }
+    .status-pill { font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
+    .status-searching { background: #d97706; } .status-locked { background: #16a34a; } .status-error { background: #dc2626; }
+    #overlay-btn { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #2563eb; color: #fff; border: none; padding: 16px 32px; border-radius: 32px; font-weight: bold; font-size: 16px; }
+    #capture-canvas { display: none; }
   </style>
 </head>
 <body>
-
-  <!-- Real-Time VPS Diagnostic HUD -->
   <div id="hud">
-    <div class="hud-row">
-      <span><strong>VPS Status:</strong></span>
-      <span id="vps-status" class="status-pill status-searching">INITIALIZING</span>
-    </div>
-    <div class="hud-row">
-      <span style="color:#94a3b8;">Endpoint:</span>
-      <span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span>
-    </div>
-    <div class="hud-row">
-      <span style="color:#94a3b8;">Telemetry:</span>
-      <span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Ready</span>
-    </div>
+    <div class="hud-row"><span><strong>VPS Status:</strong></span><span id="vps-status" class="status-pill status-searching">INITIALIZING</span></div>
+    <div class="hud-row"><span style="color:#94a3b8;">Endpoint:</span><span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span></div>
+    <div class="hud-row"><span style="color:#94a3b8;">Telemetry:</span><span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Ready</span></div>
   </div>
-
-  <button id="overlay-btn" onclick="startAR()">START CAMERA & VPS</button>
+  <button id="overlay-btn" onclick="startAR()">START CAMERA</button>
   <canvas id="capture-canvas"></canvas>
 
   <script>
-    // ========================================================
-    // NGROK / VPS SERVER CONFIGURATION
-    // ========================================================
+    // UPDATE THIS WITH YOUR ACTIVE NGROK URL
     const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
 
@@ -99,15 +33,16 @@
 
     let scene, camera, renderer, videoElement, videoTexture;
     let isLocalizing = false;
+    let worldAnchorGroup, cameraGroup;
+    let targetPosition = new THREE.Vector3();
+    let targetQuaternion = new THREE.Quaternion();
+    let hasInitialLock = false;
     let requestCount = 0;
-    let worldAnchorGroup;
-    let cameraGroup;
 
     function initScene() {
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 100.0);
       
-      // Camera rig group for IMU orientation
       cameraGroup = new THREE.Group();
       cameraGroup.add(camera);
       scene.add(cameraGroup);
@@ -117,21 +52,11 @@
       renderer.setPixelRatio(window.devicePixelRatio);
       document.body.appendChild(renderer.domElement);
 
-      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-      scene.add(hemiLight);
-
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      dirLight.position.set(0, 5, 5);
-      scene.add(dirLight);
-
-      // Root container for all physical-world spatial objects
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
       worldAnchorGroup = new THREE.Group();
       scene.add(worldAnchorGroup);
 
-      // Add the (0,0,0) calibration origin landmark
       createOriginMarker();
-
-      // Enable IMU Gyroscope for real-time rotational tracking
       setupIMUOrientation();
 
       window.addEventListener('resize', onWindowResize);
@@ -141,73 +66,32 @@
     function createOriginMarker() {
       const originGroup = new THREE.Group();
       originGroup.position.set(0, 0, 0);
+      originGroup.add(new THREE.AxesHelper(0.6));
+      
+      const ringGeo = new THREE.RingGeometry(0.2, 0.22, 32);
+      ringGeo.rotateX(-Math.PI / 2);
+      originGroup.add(new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })));
 
-      // Wireframe origin node
-      const sphereGeo = new THREE.SphereGeometry(0.08, 16, 16);
-      const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
-      originGroup.add(new THREE.Mesh(sphereGeo, sphereMat));
-
-      // RGB Axes (Red=X, Green=Y, Blue=Z)
-      const axesHelper = new THREE.AxesHelper(0.6);
-      axesHelper.material.linewidth = 3;
-      originGroup.add(axesHelper);
-
-      // Concentric floor rings
-      const ringGeo1 = new THREE.RingGeometry(0.2, 0.22, 32);
-      ringGeo1.rotateX(-Math.PI / 2);
-      const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
-      originGroup.add(new THREE.Mesh(ringGeo1, ringMat1));
-
-      const ringGeo2 = new THREE.RingGeometry(0.4, 0.41, 32);
-      ringGeo2.rotateX(-Math.PI / 2);
-      const ringMat2 = new THREE.MeshBasicMaterial({ color: 0x0ea5e9, side: THREE.DoubleSide });
-      originGroup.add(new THREE.Mesh(ringGeo2, ringMat2));
-
-      // Info Card Billboard
       const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 256;
+      canvas.width = 512; canvas.height = 256;
       const ctx = canvas.getContext('2d');
-
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, 512, 256);
-      ctx.strokeStyle = '#00f0ff';
-      ctx.lineWidth = 10;
-      ctx.strokeRect(0, 0, 512, 256);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 44px monospace';
-      ctx.fillText("ORIGIN (0,0,0)", 40, 90);
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = '28px sans-serif';
-      ctx.fillText("Spatial VPS Calibration Zero", 40, 150);
-
-      ctx.fillStyle = '#64748b';
-      ctx.font = '22px monospace';
-      ctx.fillText("X: Right | Y: Up | Z: Forward", 40, 200);
-
-      const cardTex = new THREE.CanvasTexture(canvas);
-      const cardMat = new THREE.MeshBasicMaterial({ map: cardTex, transparent: true });
-      const cardGeo = new THREE.PlaneGeometry(0.6, 0.3);
-      const cardMesh = new THREE.Mesh(cardGeo, cardMat);
+      ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, 512, 256);
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 44px monospace'; ctx.fillText("ORIGIN (0,0,0)", 40, 100);
+      
+      const cardMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.3), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
       cardMesh.position.set(0, 0.45, 0);
       originGroup.add(cardMesh);
-
       worldAnchorGroup.add(originGroup);
     }
 
     function setupIMUOrientation() {
       if (window.DeviceOrientationEvent) {
         window.addEventListener('deviceorientation', (event) => {
-          if (event.alpha === null || !cameraGroup) return;
-
-          const alpha = THREE.MathUtils.degToRad(event.alpha || 0); // Z
-          const beta  = THREE.MathUtils.degToRad(event.beta || 0);  // X
-          const gamma = THREE.MathUtils.degToRad(event.gamma || 0); // Y
-
-          const euler = new THREE.Euler(beta - Math.PI / 2, gamma, -alpha, 'YXZ');
-          cameraGroup.quaternion.setFromEuler(euler);
+          if (!event.alpha || !cameraGroup) return;
+          const alpha = THREE.MathUtils.degToRad(event.alpha); 
+          const beta  = THREE.MathUtils.degToRad(event.beta);  
+          const gamma = THREE.MathUtils.degToRad(event.gamma); 
+          cameraGroup.quaternion.setFromEuler(new THREE.Euler(beta - Math.PI / 2, gamma, -alpha, 'YXZ'));
         }, true);
       }
     }
@@ -215,32 +99,16 @@
     async function startAR() {
       document.getElementById('overlay-btn').style.display = 'none';
       initScene();
-
       videoElement = document.createElement('video');
-      videoElement.setAttribute('autoplay', '');
-      videoElement.setAttribute('muted', '');
-      videoElement.setAttribute('playsinline', '');
-
+      videoElement.setAttribute('autoplay', ''); videoElement.setAttribute('muted', ''); videoElement.setAttribute('playsinline', '');
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false
-        });
-        videoElement.srcObject = stream;
-        await videoElement.play();
-
-        // Feed camera frames directly to background
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }});
+        videoElement.srcObject = stream; await videoElement.play();
         videoTexture = new THREE.VideoTexture(videoElement);
         scene.background = videoTexture;
-
-        updateStatus("SEARCHING FOR MATCH", "searching");
-
-        // Polling cycle every 1.5s
+        updateStatus("SEARCHING", "searching");
         setInterval(captureAndSendFrame, 1500);
-
       } catch (err) {
-        console.error("Camera access failed:", err);
-        updateStatus("CAMERA ERROR", "error");
         alert("Camera error: " + err.message);
       }
     }
@@ -251,72 +119,42 @@
       requestCount++;
 
       const canvas = document.getElementById('capture-canvas');
-      canvas.width = 640;
-      canvas.height = 360;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-      const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-      document.getElementById("vps-telemetry").innerText = `Sending #${requestCount}...`;
+      canvas.width = 640; canvas.height = 360;
+      canvas.getContext('2d').drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
       try {
-        const response = await fetch(VPS_ENDPOINT, {
+        const res = await fetch(VPS_ENDPOINT, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true'
-          },
-          body: JSON.stringify({ image: base64Image })
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+          body: JSON.stringify({ image: canvas.toDataURL('image/jpeg', 0.7) })
         });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status || 'OK'}`;
-
-        if (data.matched && data.pose) {
-          updateStatus(`VPS LOCKED (${data.inliers} INLIERS)`, "locked");
+        const data = await res.json();
+        document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status}`;
+        
+        if (data.matched) {
+          updateStatus(`LOCKED (${data.inliers} INLIERS)`, "locked");
           applyPose(data.pose);
         } else {
-          updateStatus(`SEARCHING (${data.inliers || 0} INLIERS)`, "searching");
+          updateStatus(`SEARCHING (${data.inliers} INLIERS)`, "searching");
         }
-
       } catch (err) {
-        console.error("VPS fetch error:", err);
-        document.getElementById("vps-telemetry").innerText = `Error: ${err.message}`;
-        updateStatus("OFFLINE / TUNNEL ERROR", "error");
+        document.getElementById("vps-telemetry").innerText = "Network Error";
       } finally {
         isLocalizing = false;
       }
     }
 
-    // Invert Camera-in-World matrix into World-in-Camera transform
     function applyPose(pose) {
-      if (!worldAnchorGroup) return;
-
-      const camPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
-      const camEuler = new THREE.Euler(pose.rotation.x, pose.rotation.y, pose.rotation.z, 'XYZ');
-
-      const camMatrix = new THREE.Matrix4();
-      camMatrix.makeRotationFromEuler(camEuler);
-      camMatrix.setPosition(camPos);
-
-      // Invert camera matrix to transform world origin relative to view
+      const camMatrix = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(pose.rotation.x, pose.rotation.y, pose.rotation.z, 'XYZ'));
+      camMatrix.setPosition(new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z));
       const worldMatrix = new THREE.Matrix4().copy(camMatrix).invert();
+      worldMatrix.decompose(targetPosition, targetQuaternion, new THREE.Vector3());
 
-      worldMatrix.decompose(
-        worldAnchorGroup.position,
-        worldAnchorGroup.quaternion,
-        worldAnchorGroup.scale
-      );
-    }
-
-    function updateStatus(text, stateClass) {
-      const pill = document.getElementById("vps-status");
-      pill.innerText = text;
-      pill.className = `status-pill status-${stateClass}`;
+      if (!hasInitialLock) {
+        worldAnchorGroup.position.copy(targetPosition);
+        worldAnchorGroup.quaternion.copy(targetQuaternion);
+        hasInitialLock = true;
+      }
     }
 
     function onWindowResize() {
@@ -327,6 +165,10 @@
 
     function animate() {
       requestAnimationFrame(animate);
+      if (hasInitialLock && worldAnchorGroup) {
+        worldAnchorGroup.position.lerp(targetPosition, 0.15);
+        worldAnchorGroup.quaternion.slerp(targetQuaternion, 0.15);
+      }
       renderer.render(scene, camera);
     }
   </script>
