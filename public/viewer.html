@@ -162,40 +162,50 @@
     }
 
     function calibrateWorldPose(pose) {
-      // 1. Get current ARCore camera position in WebXR tracking space
+      // 1. Get current ARCore camera matrix (WebXR Space: Y-Up, -Z Forward)
       const xrCamera = renderer.xr.getCamera(camera);
-      const xrCamPos = xrCamera.position;
-      const xrCamQuat = xrCamera.quaternion;
+      const xrCamMatrix = new THREE.Matrix4().copy(xrCamera.matrixWorld);
 
-      // 2. Compute VPS camera offset
+      // 2. Construct the VPS Camera Matrix (OpenCV Space: Y-Down, +Z Forward)
       const vpsCamPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
       const vpsEuler = new THREE.Euler(pose.rotation.x, pose.rotation.y, pose.rotation.z, 'XYZ');
-      const vpsCamQuat = new THREE.Quaternion().setFromEuler(vpsEuler);
+      
+      const vpsCamMatrix = new THREE.Matrix4().makeRotationFromEuler(vpsEuler);
+      vpsCamMatrix.setPosition(vpsCamPos);
 
-      // 3. Align the world coordinate system so (0,0,0) stays at the physical LiDAR origin
+      // 3. THE FIX: Flip OpenCV axes to match WebGL
+      // This matrix scales local Y and Z by -1, flipping them upright and forward
+      const cvToGl = new THREE.Matrix4().set(
+          1,  0,  0,  0,
+          0, -1,  0,  0,
+          0,  0, -1,  0,
+          0,  0,  0,  1
+      );
+      vpsCamMatrix.multiply(cvToGl);
+
+      // 4. Calculate the offset between where ARCore thinks you are, and where VPS knows you are
       // World_in_XR = XR_Camera * VPS_Camera_Inverted
-      const vpsCamMatrix = new THREE.Matrix4().makeRotationFromQuaternion(vpsCamQuat).setPosition(vpsCamPos);
       const vpsInv = new THREE.Matrix4().copy(vpsCamMatrix).invert();
-
-      const xrCamMatrix = new THREE.Matrix4().makeRotationFromQuaternion(xrCamQuat).setPosition(xrCamPos);
       const targetWorldMatrix = new THREE.Matrix4().multiplyMatrices(xrCamMatrix, vpsInv);
 
+      // Extract final corrected position and rotation
       const targetPos = new THREE.Vector3();
       const targetRot = new THREE.Quaternion();
       const targetScale = new THREE.Vector3();
       targetWorldMatrix.decompose(targetPos, targetRot, targetScale);
 
-      // Snap on first lock, then softly blend subsequent drift corrections
+      // 5. Apply to the world group
       if (!hasLocked) {
         worldAnchorGroup.position.copy(targetPos);
         worldAnchorGroup.quaternion.copy(targetRot);
         hasLocked = true;
       } else {
+        // Smoothly lerp any small drift corrections
         worldAnchorGroup.position.lerp(targetPos, 0.1);
         worldAnchorGroup.quaternion.slerp(targetRot, 0.1);
       }
     }
-
+    
     function render(timestamp, frame) {
       renderer.render(scene, camera);
     }
