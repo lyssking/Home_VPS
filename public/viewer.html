@@ -2,26 +2,64 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
   <title>WebXR 6DOF VPS Viewer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; color: #fff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #000; color: #fff; width: 100vw; height: 100dvh; }
     
-    /* object-fit: cover ensures the video fills the screen without stretching visually */
-    #bg-video { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: -1; }
+    #bg-video { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; object-fit: cover; z-index: -1; }
     
-    #ui-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
-    #hud { position: absolute; top: 12px; left: 12px; right: 12px; background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
+    #ui-container { 
+      position: fixed; 
+      top: 0; 
+      left: 0; 
+      width: 100vw; 
+      height: 100dvh; 
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
+    
+    #hud { 
+      background: rgba(15, 23, 42, 0.88); 
+      border-radius: 12px; 
+      padding: 12px 14px; 
+      font-size: 13px; 
+      display: flex; 
+      flex-direction: column; 
+      gap: 6px; 
+      pointer-events: auto;
+      backdrop-filter: blur(8px);
+    }
+    
     .hud-row { display: flex; justify-content: space-between; align-items: center; }
     .status-pill { font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
-    
     .status-initializing { background: #475569; }
     .status-searching { background: #d97706; } 
     .status-locked { background: #16a34a; } 
     .status-error { background: #dc2626; }
     
-    .action-btn { position: absolute; bottom: 36px; left: 50%; transform: translateX(-50%); color: #fff; border: none; padding: 16px 32px; border-radius: 32px; font-weight: bold; font-size: 16px; pointer-events: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .btn-wrapper {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      pointer-events: auto;
+    }
+
+    .action-btn { 
+      color: #fff; 
+      border: none; 
+      padding: 16px 36px; 
+      border-radius: 32px; 
+      font-weight: bold; 
+      font-size: 16px; 
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      cursor: pointer;
+    }
     #scan-btn { background: #2563eb; }
     #ar-btn { background: #16a34a; display: none; }
     
@@ -39,8 +77,10 @@
       <div class="hud-row"><span style="color:#94a3b8;">Telemetry:</span><span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Awaiting User</span></div>
     </div>
     
-    <button id="scan-btn" class="action-btn" onclick="startScanning()">1. SCAN ROOM</button>
-    <button id="ar-btn" class="action-btn" onclick="enterAR()">2. ENTER 6DOF AR</button>
+    <div class="btn-wrapper">
+      <button id="scan-btn" class="action-btn" onclick="startScanning()">1. SCAN ROOM</button>
+      <button id="ar-btn" class="action-btn" onclick="enterAR()">2. ENTER 6DOF AR</button>
+    </div>
   </div>
 
   <canvas id="capture-canvas"></canvas>
@@ -57,7 +97,7 @@
     let scene, camera, renderer;
     let worldAnchorGroup;
     let videoStream, vpsInterval;
-    let savedPose = null;
+    let savedMatrix4 = null;
     let isLocalizing = false;
     let requestCount = 0;
     let hasCalibratedXR = false;
@@ -70,12 +110,11 @@
 
     async function startScanning() {
       document.getElementById('scan-btn').style.display = 'none';
-      updateStatus("CAMERA WAKING UP", "initializing");
+      updateStatus("CAMERA STARTING", "initializing");
       
       const video = document.getElementById('bg-video');
       
       try {
-        // Let the device pick its native resolution rather than forcing width/height
         videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         video.srcObject = videoStream;
         
@@ -85,7 +124,7 @@
         };
       } catch (err) {
         updateStatus("CAMERA DENIED", "error");
-        alert("Camera required: " + err.message);
+        alert("Camera permission required: " + err.message);
       }
     }
 
@@ -101,15 +140,11 @@
       canvas.height = 270;
       const ctx = canvas.getContext('2d');
 
-      // --- THE FIX: Aspect Ratio Cropping Math ---
-      // This slices a perfect landscape frame out of your portrait video
-      // so it never squishes or distorts the image sent to the server.
       const videoRatio = video.videoWidth / video.videoHeight;
       const canvasRatio = canvas.width / canvas.height;
       let drawWidth = video.videoWidth;
       let drawHeight = video.videoHeight;
-      let startX = 0;
-      let startY = 0;
+      let startX = 0, startY = 0;
 
       if (videoRatio > canvasRatio) {
         drawWidth = video.videoHeight * canvasRatio;
@@ -120,7 +155,6 @@
       }
 
       ctx.drawImage(video, startX, startY, drawWidth, drawHeight, 0, 0, canvas.width, canvas.height);
-      // ------------------------------------------
 
       try {
         const res = await fetch(VPS_ENDPOINT, {
@@ -133,8 +167,8 @@
         document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status || "OK"}`;
 
         if (data.matched && data.inliers >= 8) {
-          clearInterval(vpsInterval); 
-          savedPose = data.pose;
+          clearInterval(vpsInterval);
+          savedMatrix4 = data.matrix4;
           
           updateStatus(`LOCKED! (${data.inliers} inliers)`, "locked");
           document.getElementById('ar-btn').style.display = 'block'; 
@@ -148,7 +182,7 @@
 
     async function enterAR() {
       document.getElementById('ar-btn').style.display = 'none';
-      updateStatus("INITIALIZING ARCORE", "initializing");
+      updateStatus("STARTING ARCORE", "initializing");
 
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
@@ -180,7 +214,7 @@
         renderer.xr.setReferenceSpaceType('local-floor');
         await renderer.xr.setSession(session);
         
-        updateStatus("AR ACTIVE - 6DOF", "locked");
+        updateStatus("AR RUNNING - 6DOF", "locked");
         renderer.setAnimationLoop(render);
 
       } catch (e) {
@@ -207,22 +241,14 @@
     }
 
     function calibrateWorldPoseOnce(xrCamera) {
-      if (!savedPose || hasCalibratedXR) return;
+      if (!savedMatrix4 || hasCalibratedXR) return;
 
       const xrCamMatrix = new THREE.Matrix4().copy(xrCamera.matrixWorld);
 
-      const vpsCamPos = new THREE.Vector3(savedPose.position.x, savedPose.position.y, savedPose.position.z);
-      const vpsEuler = new THREE.Euler(savedPose.rotation.x, savedPose.rotation.y, savedPose.rotation.z, 'XYZ');
-      const vpsCamMatrix = new THREE.Matrix4().makeRotationFromEuler(vpsEuler).setPosition(vpsCamPos);
+      // Load the 4x4 matrix computed directly by Python
+      const vpsCamMatrix = new THREE.Matrix4().fromArray(savedMatrix4);
 
-      const cvToGl = new THREE.Matrix4().set(
-          1,  0,  0,  0,
-          0, -1,  0,  0,
-          0,  0, -1,  0,
-          0,  0,  0,  1
-      );
-      vpsCamMatrix.multiply(cvToGl);
-
+      // World_in_XR = XR_Camera * VPS_Camera_Inverted
       const vpsInv = new THREE.Matrix4().copy(vpsCamMatrix).invert();
       const targetWorldMatrix = new THREE.Matrix4().multiplyMatrices(xrCamMatrix, vpsInv);
 
