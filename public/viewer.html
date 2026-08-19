@@ -7,31 +7,51 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; color: #fff; }
+    
+    /* CSS Video Background prevents stretching */
+    #bg-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: -1; 
+    }
+    
+    /* HUD Styling */
     #hud { position: fixed; top: 12px; left: 12px; right: 12px; z-index: 1000; background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 12px; font-size: 13px; backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 6px; }
     .hud-row { display: flex; justify-content: space-between; align-items: center; }
     .status-pill { font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
-    .status-searching { background: #d97706; } .status-locked { background: #16a34a; } .status-error { background: #dc2626; }
+    .status-initializing { background: #475569; }
+    .status-searching { background: #d97706; } 
+    .status-locked { background: #16a34a; } 
+    .status-error { background: #dc2626; }
+    
     #overlay-btn { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #2563eb; color: #fff; border: none; padding: 16px 32px; border-radius: 32px; font-weight: bold; font-size: 16px; }
     #capture-canvas { display: none; }
   </style>
 </head>
 <body>
   <div id="hud">
-    <div class="hud-row"><span><strong>VPS Status:</strong></span><span id="vps-status" class="status-pill status-searching">INITIALIZING</span></div>
+    <div class="hud-row"><span><strong>VPS Status:</strong></span><span id="vps-status" class="status-pill status-initializing">INITIALIZING</span></div>
     <div class="hud-row"><span style="color:#94a3b8;">Endpoint:</span><span id="vps-endpoint-label" style="font-family: monospace; font-size: 11px;">Connecting...</span></div>
     <div class="hud-row"><span style="color:#94a3b8;">Telemetry:</span><span id="vps-telemetry" style="font-family: monospace; font-size: 11px;">Ready</span></div>
   </div>
   <button id="overlay-btn" onclick="startAR()">START CAMERA</button>
+  
   <canvas id="capture-canvas"></canvas>
 
   <script>
-    // UPDATE THIS WITH YOUR ACTIVE NGROK URL
+    // ==========================================
+    // PASTE YOUR NGROK URL HERE:
+    // ==========================================
     const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
 
     document.getElementById("vps-endpoint-label").innerText = NGROK_BASE_URL.replace("https://", "");
 
-    let scene, camera, renderer, videoElement, videoTexture;
+    let scene, camera, renderer, videoElement;
     let isLocalizing = false;
     let worldAnchorGroup, cameraGroup;
     let targetPosition = new THREE.Vector3();
@@ -47,9 +67,15 @@
       cameraGroup.add(camera);
       scene.add(cameraGroup);
 
+      // Alpha: true makes the ThreeJS canvas transparent so we can see the HTML video behind it
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
+      // Ensure the renderer canvas sits on top of the video
+      renderer.domElement.style.position = 'absolute';
+      renderer.domElement.style.top = '0';
+      renderer.domElement.style.left = '0';
+      renderer.domElement.style.zIndex = '1';
       document.body.appendChild(renderer.domElement);
 
       scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
@@ -66,12 +92,16 @@
     function createOriginMarker() {
       const originGroup = new THREE.Group();
       originGroup.position.set(0, 0, 0);
+      
+      // XYZ Axes (X=Red, Y=Green, Z=Blue)
       originGroup.add(new THREE.AxesHelper(0.6));
       
+      // Concentric Rings
       const ringGeo = new THREE.RingGeometry(0.2, 0.22, 32);
       ringGeo.rotateX(-Math.PI / 2);
       originGroup.add(new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })));
 
+      // Origin Billboard Text
       const canvas = document.createElement('canvas');
       canvas.width = 512; canvas.height = 256;
       const ctx = canvas.getContext('2d');
@@ -98,28 +128,42 @@
 
     async function startAR() {
       document.getElementById('overlay-btn').style.display = 'none';
+      updateStatus("CAMERA PERMISSION...", "initializing");
+      
       initScene();
+      
       videoElement = document.createElement('video');
-      videoElement.setAttribute('autoplay', ''); videoElement.setAttribute('muted', ''); videoElement.setAttribute('playsinline', '');
+      videoElement.id = 'bg-video';
+      videoElement.setAttribute('autoplay', ''); 
+      videoElement.setAttribute('muted', ''); 
+      videoElement.setAttribute('playsinline', '');
+      document.body.appendChild(videoElement);
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }});
-        videoElement.srcObject = stream; await videoElement.play();
-        videoTexture = new THREE.VideoTexture(videoElement);
-        scene.background = videoTexture;
-        updateStatus("SEARCHING", "searching");
-        setInterval(captureAndSendFrame, 1500);
+        videoElement.srcObject = stream;
+        
+        // Wait for the video metadata to load before firing the VPS requests
+        videoElement.onloadedmetadata = async () => {
+          await videoElement.play();
+          updateStatus("SEARCHING FOR MATCH", "searching");
+          setInterval(captureAndSendFrame, 1500);
+        };
       } catch (err) {
+        updateStatus("CAMERA DENIED", "error");
         alert("Camera error: " + err.message);
       }
     }
 
     async function captureAndSendFrame() {
+      // Safety check to ensure video is fully ready
       if (!videoElement || videoElement.videoWidth === 0 || isLocalizing) return;
       isLocalizing = true;
       requestCount++;
 
       const canvas = document.getElementById('capture-canvas');
-      canvas.width = 640; canvas.height = 360;
+      canvas.width = 640; 
+      canvas.height = 360;
       canvas.getContext('2d').drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
       try {
@@ -128,17 +172,21 @@
           headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
           body: JSON.stringify({ image: canvas.toDataURL('image/jpeg', 0.7) })
         });
+        
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+        
         const data = await res.json();
-        document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status}`;
+        document.getElementById("vps-telemetry").innerText = `Resp #${requestCount}: ${data.status || "OK"}`;
         
         if (data.matched) {
           updateStatus(`LOCKED (${data.inliers} INLIERS)`, "locked");
           applyPose(data.pose);
         } else {
-          updateStatus(`SEARCHING (${data.inliers} INLIERS)`, "searching");
+          updateStatus(`SEARCHING (${data.inliers || 0} INLIERS)`, "searching");
         }
       } catch (err) {
-        document.getElementById("vps-telemetry").innerText = "Network Error";
+        document.getElementById("vps-telemetry").innerText = `Net Error: ${err.message}`;
+        updateStatus("TUNNEL OFFLINE", "error");
       } finally {
         isLocalizing = false;
       }
