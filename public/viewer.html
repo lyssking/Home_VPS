@@ -7,98 +7,17 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     * { box-sizing: border-box; }
-    body { 
-      margin: 0; 
-      padding: 0; 
-      overflow: hidden; 
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-      background: #000; 
-      color: #fff; 
-      width: 100vw; 
-      height: 100dvh; 
-    }
-    
-    #bg-video { 
-      position: fixed; 
-      top: 0; 
-      left: 0; 
-      width: 100vw; 
-      height: 100dvh; 
-      object-fit: cover; 
-      z-index: -1; 
-    }
-    
-    #ui-container { 
-      position: fixed; 
-      top: 0; 
-      left: 0; 
-      width: 100vw; 
-      height: 100dvh; 
-      pointer-events: none;
-      display: flex; 
-      flex-direction: column; 
-      justify-content: space-between;
-      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-    }
-    
-    #hud { 
-      background: rgba(15, 23, 42, 0.88); 
-      border-radius: 12px; 
-      padding: 12px 14px; 
-      font-size: 12px; 
-      display: flex; 
-      flex-direction: column; 
-      gap: 6px; 
-      width: fit-content; 
-      backdrop-filter: blur(8px); 
-      pointer-events: auto;
-    }
-    
+    body { margin: 0; padding: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; color: #fff; width: 100vw; height: 100dvh; }
+    #bg-video { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; object-fit: cover; z-index: -1; }
+    #ui-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+    #hud { background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 12px 14px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; width: fit-content; backdrop-filter: blur(8px); pointer-events: auto; }
     .hud-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
     .status-pill { font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
-    .status-initializing { background: #475569; } 
-    .status-searching { background: #d97706; } 
-    .status-locked { background: #16a34a; }
-
-    #marker-hud {
-      position: absolute;
-      top: max(16px, env(safe-area-inset-top));
-      right: max(16px, env(safe-area-inset-right));
-      background: rgba(15, 23, 42, 0.88);
-      border-radius: 12px;
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      display: none;
-      pointer-events: auto;
-      backdrop-filter: blur(8px);
-    }
-
-    .btn-wrapper { 
-      width: 100%; 
-      display: flex; 
-      flex-direction: column; 
-      align-items: center; 
-      gap: 12px; 
-      pointer-events: auto; 
-    }
-    
-    .action-btn { 
-      color: #fff; 
-      border: none; 
-      padding: 16px 36px; 
-      border-radius: 32px; 
-      font-weight: bold; 
-      font-size: 15px; 
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4); 
-      cursor: pointer; 
-      width: 220px; 
-    }
-    #scan-btn { background: #2563eb; }
-    #ar-btn { background: #16a34a; display: none; }
-    #map-btn { background: #9333ea; font-size: 12px; padding: 10px 24px; width: 180px; }
-    
-    #capture-canvas { display: none; }
+    .status-initializing { background: #475569; } .status-searching { background: #d97706; } .status-locked { background: #16a34a; }
+    #marker-hud { position: absolute; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: none; pointer-events: auto; backdrop-filter: blur(8px); }
+    .btn-wrapper { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: auto; }
+    .action-btn { color: #fff; border: none; padding: 16px 36px; border-radius: 32px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); cursor: pointer; width: 220px; }
+    #scan-btn { background: #2563eb; } #ar-btn { background: #16a34a; display: none; } #map-btn { background: #9333ea; font-size: 12px; padding: 10px 24px; width: 180px; }
   </style>
 </head>
 <body>
@@ -116,11 +35,7 @@
         <span id="vps-telemetry" style="font-family: monospace;">Awaiting action</span>
       </div>
     </div>
-
-    <div id="marker-hud">
-      <span style="color:#38bdf8;">Markers Placed:</span> <span id="marker-count">0</span>
-    </div>
-
+    <div id="marker-hud"><span style="color:#38bdf8;">Markers Placed:</span> <span id="marker-count">0</span></div>
     <div class="btn-wrapper">
       <button id="scan-btn" class="action-btn" onclick="startScanning()">1. SCAN ROOM</button>
       <button id="ar-btn" class="action-btn" onclick="enterAR()">2. ENTER AR</button>
@@ -128,29 +43,26 @@
     </div>
   </div>
 
-  <canvas id="capture-canvas"></canvas>
+  <canvas id="capture-canvas" style="display:none;"></canvas>
 
   <script>
     // ==========================================
     // PASTE YOUR NGROK URL HERE:
     // ==========================================
     const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
-    
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
     const MAP_ENDPOINT = `${NGROK_BASE_URL}/api/vps/map`;
 
-    let scene, camera, renderer;
+    let scene, camera, renderer, glBinding = null;
     let worldAnchorGroup;
     let videoStream, vpsInterval;
     let savedMatrix4 = null;
     let isLocalizing = false, isMapping = false, hasCalibratedXR = false;
-    let requestCount = 0;
-    let markerCount = 0;
+    let requestCount = 0, markerCount = 0, lastMapTime = 0, mappedFrames = 0;
 
     function updateStatus(text, stateClass) {
       const pill = document.getElementById("vps-status");
-      pill.innerText = text; 
-      pill.className = `status-pill status-${stateClass}`;
+      pill.innerText = text; pill.className = `status-pill status-${stateClass}`;
     }
 
     function initThreeJS() {
@@ -164,132 +76,143 @@
       document.body.appendChild(renderer.domElement);
 
       scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.5));
-      
       worldAnchorGroup = new THREE.Group();
       scene.add(worldAnchorGroup);
 
-      createOriginGizmo();
-    }
-
-    function createOriginGizmo() {
       const origin = new THREE.Group();
-
-      // RGB Axes (Red = +X, Green = +Y Up, Blue = +Z)
-      const axes = new THREE.AxesHelper(0.6);
-      origin.add(axes);
-
-      // Floor Target Ring
+      origin.add(new THREE.AxesHelper(0.6));
       const ringGeo = new THREE.RingGeometry(0.2, 0.24, 32);
       ringGeo.rotateX(-Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide });
-      origin.add(new THREE.Mesh(ringGeo, ringMat));
-
-      // Origin Beacon Box
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.08, 0.08),
-        new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.8 })
-      );
-      box.position.y = 0.04;
-      origin.add(box);
-
+      origin.add(new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide })));
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.8 }));
+      box.position.y = 0.04; origin.add(box);
       worldAnchorGroup.add(origin);
     }
 
     // ==========================================
-    // TAP TO PLACE TEST MARKER
+    // GPU PIXEL EXTRACTOR (Bypasses Black Screen)
     // ==========================================
-    function onScreenTap(event) {
-      if (!hasCalibratedXR || isMapping) return;
+    async function extractCameraPixels(xrCamera, gl) {
+      const texture = glBinding.getCameraImage(xrCamera);
+      if (!texture) return null;
 
-      const xrCamera = renderer.xr.getCamera(camera);
-      if (!xrCamera) return;
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
 
-      // Calculate a point 1.0 meter directly in front of where the camera is aimed
-      const forwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCamera.quaternion);
-      const markerWorldPos = new THREE.Vector3().copy(xrCamera.position).add(forwardDir.multiplyScalar(1.0));
-
-      // Convert world position into worldAnchorGroup local space
-      worldAnchorGroup.worldToLocal(markerWorldPos);
-
-      // Create a colored spatial pin marker
-      const markerPin = new THREE.Group();
+      const width = xrCamera.width, height = xrCamera.height;
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       
-      const colors = [0xef4444, 0x10b981, 0x8b5cf6, 0xf59e0b, 0xec4899];
-      const pinColor = colors[markerCount % colors.length];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
 
-      const pinHead = new THREE.Mesh(
-        new THREE.SphereGeometry(0.04, 16, 16),
-        new THREE.MeshStandardMaterial({ color: pinColor, metalness: 0.2, roughness: 0.3 })
-      );
-      pinHead.position.y = 0.08;
-      markerPin.add(pinHead);
+      // Convert raw RGBA GPU pixels into a standard HTML Canvas
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = width; tempCanvas.height = height;
+      const ctx = tempCanvas.getContext('2d');
+      const imgData = new ImageData(new Uint8ClampedArray(pixels), width, height);
+      ctx.putImageData(imgData, 0, 0);
 
-      const pinStem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.008, 0.002, 0.08, 12),
-        new THREE.MeshStandardMaterial({ color: 0xffffff })
-      );
-      pinStem.position.y = 0.04;
-      markerPin.add(pinStem);
+      // WebGL textures are rendered upside down, so we flip it
+      const flipCanvas = document.createElement('canvas');
+      flipCanvas.width = width; flipCanvas.height = height;
+      const fCtx = flipCanvas.getContext('2d');
+      fCtx.translate(0, height); fCtx.scale(1, -1);
+      fCtx.drawImage(tempCanvas, 0, 0);
 
-      markerPin.position.copy(markerWorldPos);
-      worldAnchorGroup.add(markerPin);
-
-      markerCount++;
-      document.getElementById('marker-count').innerText = markerCount;
+      return flipCanvas.toDataURL('image/jpeg', 0.6);
     }
 
     // ==========================================
-    // MAPPING SESSION (DEV)
+    // MAPPING SESSION (ARCore VIO + Camera Access)
     // ==========================================
     async function startMappingSession() {
       document.querySelector('.btn-wrapper').style.display = 'none';
-      updateStatus("MAPPING MODE", "searching");
-      
-      const video = document.getElementById('bg-video');
+      updateStatus("MAPPING: WALK PERIMETER", "searching");
+      document.getElementById('bg-video').style.display = 'none';
+
       try {
-        videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        video.srcObject = videoStream;
         initThreeJS();
         
-        const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'] });
+        // Request the specific 'camera-access' permission flag
+        const session = await navigator.xr.requestSession('immersive-ar', { 
+          requiredFeatures: ['local-floor', 'camera-access'],
+          optionalFeatures: ['dom-overlay'],
+          domOverlay: { root: document.getElementById('ui-container') }
+        });
+        
         renderer.xr.setReferenceSpaceType('local-floor');
         await renderer.xr.setSession(session);
         
-        isMapping = true;
+        // Bind the GPU so we can rip the texture
+        const gl = renderer.getContext();
+        await gl.makeXRCompatible();
+        glBinding = new XRWebGLBinding(session, gl);
         
-        setInterval(() => {
-          if (!isMapping || !renderer.xr.isPresenting) return;
-          const xrCamera = renderer.xr.getCamera(camera);
-          if (!xrCamera) return;
-
-          const canvas = document.getElementById('capture-canvas');
-          canvas.width = 480; 
-          canvas.height = 270;
-          const ctx = canvas.getContext('2d');
-          
-          const ratioV = video.videoWidth / video.videoHeight, ratioC = canvas.width / canvas.height;
-          let dW = video.videoWidth, dH = video.videoHeight, sX = 0, sY = 0;
-          if (ratioV > ratioC) { dW = video.videoHeight * ratioC; sX = (video.videoWidth - dW) / 2; } 
-          else { dH = video.videoWidth / ratioC; sY = (video.videoHeight - dH) / 2; }
-          ctx.drawImage(video, sX, sY, dW, dH, 0, 0, canvas.width, canvas.height);
-          
-          fetch(MAP_ENDPOINT, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
-              body: JSON.stringify({ 
-                  image: canvas.toDataURL('image/jpeg', 0.6),
-                  matrix: xrCamera.matrixWorld.toArray() 
-              })
-          });
-          document.getElementById("vps-telemetry").innerText = "Map Frame Logged";
-        }, 1500);
-
+        isMapping = true;
         renderer.setAnimationLoop(render);
-      } catch (err) { alert("Mapping error: " + err.message); }
+      } catch (err) { 
+        alert("Make sure Chrome has AR enabled! Error: " + err.message); 
+      }
     }
 
     // ==========================================
-    // LOCALIZATION & AR VIEW
+    // RENDER LOOP & FRAME LOGGING
+    // ==========================================
+    async function render(timestamp, frame) {
+      if (!frame) return;
+
+      // --- 1. HANDLE MAPPING LOGGING ---
+      if (isMapping && (timestamp - lastMapTime > 1500)) {
+        lastMapTime = timestamp;
+        
+        const viewerPose = frame.getViewerPose(renderer.xr.getReferenceSpace());
+        if (viewerPose && glBinding) {
+          const view = viewerPose.views[0];
+          const xrCamera = view.camera;
+          
+          if (xrCamera) {
+            const base64Img = await extractCameraPixels(xrCamera, renderer.getContext());
+            if (base64Img) {
+              fetch(MAP_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+                body: JSON.stringify({ 
+                  image: base64Img,
+                  matrix: view.transform.matrix 
+                })
+              });
+              mappedFrames++;
+              document.getElementById("vps-telemetry").innerText = `Mapped Frames: ${mappedFrames}`;
+            }
+          }
+        }
+      }
+
+      // --- 2. HANDLE LOCALIZATION ---
+      if (!isMapping && !hasCalibratedXR) {
+        const xrCamera = renderer.xr.getCamera(camera);
+        if (xrCamera && xrCamera.matrixWorld.elements[14] !== 0) {
+          const vpsCamMatrix = new THREE.Matrix4().fromArray(savedMatrix4);
+          const cvToGl = new THREE.Matrix4().set(1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1);
+          vpsCamMatrix.multiply(cvToGl);
+          
+          const targetWorldMatrix = new THREE.Matrix4().multiplyMatrices(
+            xrCamera.matrixWorld, 
+            new THREE.Matrix4().copy(vpsCamMatrix).invert()
+          );
+
+          targetWorldMatrix.decompose(worldAnchorGroup.position, worldAnchorGroup.quaternion, new THREE.Vector3());
+          hasCalibratedXR = true;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // ==========================================
+    // ATTENDEE LOCALIZATION & MARKERS
     // ==========================================
     async function startScanning() {
       document.querySelector('.btn-wrapper').style.display = 'none';
@@ -303,21 +226,17 @@
           updateStatus("SEARCHING FOR LOCK", "searching");
           vpsInterval = setInterval(captureAndLocalize, 1000);
         };
-      } catch (err) { alert("Camera permission required: " + err.message); }
+      } catch (err) { alert("Camera required: " + err.message); }
     }
 
     async function captureAndLocalize() {
       const video = document.getElementById('bg-video');
       if (isLocalizing || !video || video.videoWidth === 0) return;
       
-      isLocalizing = true; 
-      requestCount++;
-
+      isLocalizing = true; requestCount++;
       const canvas = document.getElementById('capture-canvas');
-      canvas.width = 480; 
-      canvas.height = 270;
+      canvas.width = 480; canvas.height = 270;
       const ctx = canvas.getContext('2d');
-
       const ratioV = video.videoWidth / video.videoHeight, ratioC = canvas.width / canvas.height;
       let dW = video.videoWidth, dH = video.videoHeight, sX = 0, sY = 0;
       if (ratioV > ratioC) { dW = video.videoHeight * ratioC; sX = (video.videoWidth - dW) / 2; } 
@@ -341,55 +260,49 @@
           document.getElementById('ar-btn').style.display = 'block';
           document.getElementById('map-btn').style.display = 'none'; 
         }
-      } catch (err) {
-        document.getElementById("vps-telemetry").innerText = "Network Error";
-      } finally { 
-        isLocalizing = false; 
-      }
+      } catch (err) {} finally { isLocalizing = false; }
     }
 
     async function enterAR() {
       document.querySelector('.btn-wrapper').style.display = 'none';
       if (videoStream) videoStream.getTracks().forEach(track => track.stop());
       document.getElementById('bg-video').style.display = 'none';
-
       initThreeJS();
       document.getElementById('marker-hud').style.display = 'block';
 
       try {
-        const session = await navigator.xr.requestSession('immersive-ar', { 
-          requiredFeatures: ['local-floor'], 
-          optionalFeatures: ['dom-overlay'], 
-          domOverlay: { root: document.getElementById('ui-container') } 
-        });
-
+        const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'], optionalFeatures: ['dom-overlay'], domOverlay: { root: document.getElementById('ui-container') } });
         renderer.xr.setReferenceSpaceType('local-floor');
         await renderer.xr.setSession(session);
         session.addEventListener('select', onScreenTap);
         renderer.setAnimationLoop(render);
-      } catch (e) { 
-        alert("ARCore Error: " + e.message); 
-      }
+      } catch (e) { alert("ARCore Error: " + e.message); }
     }
 
-    function render(timestamp) {
-      if (!isMapping && !hasCalibratedXR) {
-        const xrCamera = renderer.xr.getCamera(camera);
-        if (xrCamera && xrCamera.matrixWorld.elements[14] !== 0) {
-          const vpsCamMatrix = new THREE.Matrix4().fromArray(savedMatrix4);
-          const cvToGl = new THREE.Matrix4().set(1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1);
-          vpsCamMatrix.multiply(cvToGl);
-          
-          const targetWorldMatrix = new THREE.Matrix4().multiplyMatrices(
-            xrCamera.matrixWorld, 
-            new THREE.Matrix4().copy(vpsCamMatrix).invert()
-          );
+    function onScreenTap(event) {
+      if (!hasCalibratedXR || isMapping) return;
+      const xrCamera = renderer.xr.getCamera(camera);
+      if (!xrCamera) return;
 
-          targetWorldMatrix.decompose(worldAnchorGroup.position, worldAnchorGroup.quaternion, new THREE.Vector3());
-          hasCalibratedXR = true;
-        }
-      }
-      renderer.render(scene, camera);
+      const forwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCamera.quaternion);
+      const markerWorldPos = new THREE.Vector3().copy(xrCamera.position).add(forwardDir.multiplyScalar(1.0));
+      worldAnchorGroup.worldToLocal(markerWorldPos);
+
+      const markerPin = new THREE.Group();
+      const colors = [0xef4444, 0x10b981, 0x8b5cf6, 0xf59e0b, 0xec4899];
+      const pinColor = colors[markerCount % colors.length];
+
+      const pinHead = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 16), new THREE.MeshStandardMaterial({ color: pinColor, metalness: 0.2, roughness: 0.3 }));
+      pinHead.position.y = 0.08; markerPin.add(pinHead);
+
+      const pinStem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.002, 0.08, 12), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+      pinStem.position.y = 0.04; markerPin.add(pinStem);
+
+      markerPin.position.copy(markerWorldPos);
+      worldAnchorGroup.add(markerPin);
+
+      markerCount++;
+      document.getElementById('marker-count').innerText = markerCount;
     }
   </script>
 </body>
