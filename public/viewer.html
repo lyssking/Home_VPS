@@ -180,7 +180,7 @@
                 headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
                 body: JSON.stringify({ 
                   image: base64Img,
-                  matrix: view.transform.matrix 
+                  matrix: Array.from(view.transform.matrix)
                 })
               });
               mappedFrames++;
