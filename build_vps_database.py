@@ -46,7 +46,8 @@ for json_path in json_files:
     with open(json_path, 'r') as f:
         data = json.load(f)
     
-    matrix = np.array(data["matrix"]).reshape(4, 4).T # ThreeJS is column-major, swap to row-major
+    # ThreeJS is column-major, swap to row-major
+    matrix = np.array(data["matrix"]).reshape(4, 4).T 
     T_cam = matrix[:3, 3]
     R_cam = matrix[:3, :3]
 

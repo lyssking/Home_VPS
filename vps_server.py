@@ -126,6 +126,7 @@ async def localize(req: LocalizeRequest):
         M_c2w_cv[:3, :3] = R_c2w
         M_c2w_cv[:3, 3] = T_c2w.flatten()
 
+        # Convert OpenCV to WebGL coordinates exactly ONCE here
         cv_to_gl = np.diag([1.0, -1.0, -1.0, 1.0]).astype(np.float32)
         M_c2w_gl = M_c2w_cv @ cv_to_gl
         matrix_column_major = M_c2w_gl.T.flatten().tolist()

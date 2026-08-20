@@ -15,6 +15,10 @@
     .status-pill { font-weight: 700; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
     .status-initializing { background: #475569; } .status-searching { background: #d97706; } .status-locked { background: #16a34a; }
     #marker-hud { position: absolute; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); background: rgba(15, 23, 42, 0.88); border-radius: 12px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: none; pointer-events: auto; backdrop-filter: blur(8px); }
+    
+    #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; border: 2px solid rgba(255,255,255,0.7); border-radius: 50%; display: none; }
+    #crosshair::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 4px; height: 4px; background: #38bdf8; border-radius: 50%; }
+
     .btn-wrapper { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: auto; }
     .action-btn { color: #fff; border: none; padding: 16px 36px; border-radius: 32px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); cursor: pointer; width: 220px; }
     #scan-btn { background: #2563eb; } #ar-btn { background: #16a34a; display: none; } #map-btn { background: #9333ea; font-size: 12px; padding: 10px 24px; width: 180px; }
@@ -35,7 +39,10 @@
         <span id="vps-telemetry" style="font-family: monospace;">Awaiting action</span>
       </div>
     </div>
+    
     <div id="marker-hud"><span style="color:#38bdf8;">Markers Placed:</span> <span id="marker-count">0</span></div>
+    <div id="crosshair"></div>
+
     <div class="btn-wrapper">
       <button id="scan-btn" class="action-btn" onclick="startScanning()">1. SCAN ROOM</button>
       <button id="ar-btn" class="action-btn" onclick="enterAR()">2. ENTER AR</button>
@@ -49,7 +56,7 @@
     // ==========================================
     // PASTE YOUR NGROK URL HERE:
     // ==========================================
-    const NGROK_BASE_URL = "https://battle-freeway-quadrant.ngrok-free.dev";
+    const NGROK_BASE_URL = "https://your-ngrok-url.ngrok-free.dev";
     const VPS_ENDPOINT = `${NGROK_BASE_URL}/api/vps/localize`;
     const MAP_ENDPOINT = `${NGROK_BASE_URL}/api/vps/map`;
 
@@ -79,6 +86,14 @@
       worldAnchorGroup = new THREE.Group();
       scene.add(worldAnchorGroup);
 
+      // Invisible floor plane to catch raycast taps
+      const floorGeo = new THREE.PlaneGeometry(100, 100);
+      floorGeo.rotateX(-Math.PI / 2);
+      const floorMesh = new THREE.Mesh(floorGeo, new THREE.MeshBasicMaterial({ visible: false }));
+      floorMesh.name = "virtual-floor";
+      worldAnchorGroup.add(floorMesh);
+
+      // Central Origin Visualizer
       const origin = new THREE.Group();
       origin.add(new THREE.AxesHelper(0.6));
       const ringGeo = new THREE.RingGeometry(0.2, 0.24, 32);
@@ -107,14 +122,12 @@
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.deleteFramebuffer(fb);
 
-      // Convert raw RGBA GPU pixels into a standard HTML Canvas
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = width; tempCanvas.height = height;
       const ctx = tempCanvas.getContext('2d');
       const imgData = new ImageData(new Uint8ClampedArray(pixels), width, height);
       ctx.putImageData(imgData, 0, 0);
 
-      // WebGL textures are rendered upside down, so we flip it
       const flipCanvas = document.createElement('canvas');
       flipCanvas.width = width; flipCanvas.height = height;
       const fCtx = flipCanvas.getContext('2d');
@@ -125,7 +138,7 @@
     }
 
     // ==========================================
-    // MAPPING SESSION (ARCore VIO + Camera Access)
+    // MAPPING SESSION
     // ==========================================
     async function startMappingSession() {
       document.querySelector('.btn-wrapper').style.display = 'none';
@@ -135,7 +148,6 @@
       try {
         initThreeJS();
         
-        // Request the specific 'camera-access' permission flag
         const session = await navigator.xr.requestSession('immersive-ar', { 
           requiredFeatures: ['local-floor', 'camera-access'],
           optionalFeatures: ['dom-overlay'],
@@ -145,7 +157,6 @@
         renderer.xr.setReferenceSpaceType('local-floor');
         await renderer.xr.setSession(session);
         
-        // Bind the GPU so we can rip the texture
         const gl = renderer.getContext();
         await gl.makeXRCompatible();
         glBinding = new XRWebGLBinding(session, gl);
@@ -153,17 +164,16 @@
         isMapping = true;
         renderer.setAnimationLoop(render);
       } catch (err) { 
-        alert("Make sure Chrome has AR enabled! Error: " + err.message); 
+        alert("Mapping Error: Ensure WebXR API is enabled. " + err.message); 
       }
     }
 
     // ==========================================
-    // RENDER LOOP & FRAME LOGGING
+    // RENDER LOOP & LOGGING
     // ==========================================
     async function render(timestamp, frame) {
       if (!frame) return;
 
-      // --- 1. HANDLE MAPPING LOGGING ---
       if (isMapping && (timestamp - lastMapTime > 1500)) {
         lastMapTime = timestamp;
         
@@ -180,7 +190,7 @@
                 headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
                 body: JSON.stringify({ 
                   image: base64Img,
-                  matrix: Array.from(view.transform.matrix)
+                  matrix: Array.from(view.transform.matrix) // Fixed Array parsing error
                 })
               });
               mappedFrames++;
@@ -190,19 +200,15 @@
         }
       }
 
-      // --- 2. HANDLE LOCALIZATION ---
       if (!isMapping && !hasCalibratedXR) {
         const xrCamera = renderer.xr.getCamera(camera);
         if (xrCamera && xrCamera.matrixWorld.elements[14] !== 0) {
+          // Read coordinates cleanly; cvToGl math removed from frontend
           const vpsCamMatrix = new THREE.Matrix4().fromArray(savedMatrix4);
-          const cvToGl = new THREE.Matrix4().set(1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1);
-          vpsCamMatrix.multiply(cvToGl);
-          
           const targetWorldMatrix = new THREE.Matrix4().multiplyMatrices(
             xrCamera.matrixWorld, 
             new THREE.Matrix4().copy(vpsCamMatrix).invert()
           );
-
           targetWorldMatrix.decompose(worldAnchorGroup.position, worldAnchorGroup.quaternion, new THREE.Vector3());
           hasCalibratedXR = true;
         }
@@ -212,7 +218,7 @@
     }
 
     // ==========================================
-    // ATTENDEE LOCALIZATION & MARKERS
+    // ARCORE LOCALIZATION & MARKERS
     // ==========================================
     async function startScanning() {
       document.querySelector('.btn-wrapper').style.display = 'none';
@@ -267,8 +273,10 @@
       document.querySelector('.btn-wrapper').style.display = 'none';
       if (videoStream) videoStream.getTracks().forEach(track => track.stop());
       document.getElementById('bg-video').style.display = 'none';
+      
       initThreeJS();
       document.getElementById('marker-hud').style.display = 'block';
+      document.getElementById('crosshair').style.display = 'block';
 
       try {
         const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'], optionalFeatures: ['dom-overlay'], domOverlay: { root: document.getElementById('ui-container') } });
@@ -281,12 +289,30 @@
 
     function onScreenTap(event) {
       if (!hasCalibratedXR || isMapping) return;
-      const xrCamera = renderer.xr.getCamera(camera);
-      if (!xrCamera) return;
+      
+      const controller = renderer.xr.getController(0);
+      const raycaster = new THREE.Raycaster();
+      
+      const matrix = new THREE.Matrix4().extractRotation(controller.matrixWorld);
+      const direction = new THREE.Vector3(0, 0, -1).applyMatrix4(matrix);
+      raycaster.set(controller.position, direction);
 
-      const forwardDir = new THREE.Vector3(0, 0, -1).applyQuaternion(xrCamera.quaternion);
-      const markerWorldPos = new THREE.Vector3().copy(xrCamera.position).add(forwardDir.multiplyScalar(1.0));
-      worldAnchorGroup.worldToLocal(markerWorldPos);
+      const floor = worldAnchorGroup.getObjectByName("virtual-floor");
+      const intersects = raycaster.intersectObject(floor);
+
+      const markerLocalPos = new THREE.Vector3();
+
+      if (intersects.length > 0) {
+        // Drop on floor
+        const worldPos = intersects[0].point;
+        worldAnchorGroup.worldToLocal(worldPos);
+        markerLocalPos.copy(worldPos);
+      } else {
+        // Fallback: Drop 1 meter ahead
+        const worldPos = new THREE.Vector3().copy(controller.position).add(direction.multiplyScalar(1.0));
+        worldAnchorGroup.worldToLocal(worldPos);
+        markerLocalPos.copy(worldPos);
+      }
 
       const markerPin = new THREE.Group();
       const colors = [0xef4444, 0x10b981, 0x8b5cf6, 0xf59e0b, 0xec4899];
@@ -298,7 +324,7 @@
       const pinStem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.002, 0.08, 12), new THREE.MeshStandardMaterial({ color: 0xffffff }));
       pinStem.position.y = 0.04; markerPin.add(pinStem);
 
-      markerPin.position.copy(markerWorldPos);
+      markerPin.position.copy(markerLocalPos);
       worldAnchorGroup.add(markerPin);
 
       markerCount++;

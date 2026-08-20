@@ -3,6 +3,7 @@ vps_env/
 __pycache__/
 *.mp4
 mapping_images/
+mapping_data/
 models/*.ply
 models/*.glb
 .env
