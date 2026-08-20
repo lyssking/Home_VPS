@@ -27,7 +27,20 @@ print(f"🚀 Initializing SuperPoint on device: {device}")
 extractor = SuperPoint(max_num_keypoints=1024).eval().to(device)
 
 def extract_superpoint(img_bgr):
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    # 1. Convert to LAB color space to isolate the Lightness (L) channel
+    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    
+    # 2. Apply CLAHE mathematically to flatten shadows and highlights
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l_channel)
+    
+    # 3. Merge back and convert to RGB
+    limg = cv2.merge((cl, a_channel, b_channel))
+    img_equalized = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+    img_rgb = cv2.cvtColor(img_equalized, cv2.COLOR_BGR2RGB)
+    
+    # 4. Feed the normalized image to SuperPoint
     tensor = torch.from_numpy(img_rgb).permute(2, 0, 1).unsqueeze(0).float() / 255.0
     with torch.no_grad():
         res = extractor.extract(tensor.to(device))
